@@ -66,6 +66,10 @@ class MeshConnection : public esp32_ble_client::BLEClientBase {
 
   std::deque<QueuedCommand> command_queue{};
 
+  // Connect lock
+  bool connect_in_progress_{false};
+  uint64_t connecting_address_{0};
+
   std::function<void()> disconnect_callback;
 
   std::string random_key;
