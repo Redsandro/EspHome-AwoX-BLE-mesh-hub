@@ -49,17 +49,36 @@ static std::string encrypt(std::string key, std::string data) {
 static int get_product_code(unsigned char part1, unsigned char part2) { return int(part2); }
 
 void MeshConnection::connect_to(FoundDevice *found_device) {
-  this->set_address(found_device->device.address_uint64());
+  uint64_t addr = found_device->device.address_uint64();
+
+  if (this->connect_in_progress_) {
+    if (this->connecting_address_ == addr) {
+      ESP_LOGD(TAG, "Already connecting to %s, skipping",
+               found_device->device.address_str().c_str());
+      return;
+    } else {
+      ESP_LOGD(TAG, "Connect in progress to other device, skipping new connect");
+      return;
+    }
+  }
+
+  this->connect_in_progress_ = true;
+  this->connecting_address_ = addr;
+
+  this->set_address(addr);
   this->set_state(esp32_ble_tracker::ClientState::IDLE);
+
   this->found_device = found_device;
   this->found_device->connected = true;
 
   this->set_auto_connect(true);
   this->parse_device(found_device->device);
+
   if (this->found_device->mesh_id) {
     this->add_mesh_id(this->found_device->mesh_id);
   }
 }
+
 
 void MeshConnection::set_address(uint64_t address) {
   if (this->found_device) {
@@ -138,6 +157,8 @@ bool MeshConnection::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if
       ESP_LOGD(TAG, "[%u] [%s] ESP_GATTC_DISCONNECT_EVT, reason %d", this->connection_index_,
                this->address_str_, param->disconnect.reason);
       if (param->disconnect.reason > 0) {
+        this->connect_in_progress_ = false;
+        this->connecting_address_ = 0;
         this->set_address(0);
       }
       break;
@@ -145,6 +166,8 @@ bool MeshConnection::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if
     case ESP_GATTC_SEARCH_CMPL_EVT:
     case ESP_GATTC_OPEN_EVT: {
       if (this->state_ == esp32_ble_tracker::ClientState::ESTABLISHED) {
+        this->connect_in_progress_ = false;
+        this->connecting_address_ = 0;
         ESP_LOGI(TAG, "Connected....");
         this->setup_connection();
       }
@@ -196,6 +219,8 @@ bool MeshConnection::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if
 
         ESP_LOGI(TAG, "[%u] [%s] response %s", this->get_conn_id(), this->address_str_,
                  string_as_hex_string(std::string((char *) param->read.value, param->read.value_len)).c_str());
+        this->connect_in_progress_ = false;
+        this->connecting_address_ = 0;
         this->disconnect();
         this->set_address(0);
       }
@@ -219,6 +244,8 @@ void MeshConnection::setup_connection() {
 
   if (this->notification_char == nullptr) {
     ESP_LOGW(TAG, "[%u] [%s] No BLE Notification character found", this->get_conn_id(), this->address_str_);
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
     this->disconnect();
     this->set_address(0);
     return;
@@ -226,6 +253,8 @@ void MeshConnection::setup_connection() {
 
   if (this->command_char == nullptr) {
     ESP_LOGW(TAG, "[%u] [%s] No BLE Command character found", this->get_conn_id(), this->address_str_);
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
     this->disconnect();
     this->set_address(0);
     return;
@@ -233,6 +262,8 @@ void MeshConnection::setup_connection() {
 
   if (this->pair_char == nullptr) {
     ESP_LOGW(TAG, "[%u] [%s] No BLE Pair character found", this->get_conn_id(), this->address_str_);
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
     this->disconnect();
     this->set_address(0);
     return;
@@ -251,6 +282,8 @@ void MeshConnection::setup_connection() {
   if (status != ESP_OK) {
     ESP_LOGW(TAG, "[%u] [%s] esp_ble_gattc_read_char failed, error=%d", this->get_conn_id(), this->address_str_,
              status);
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
     this->disconnect();
     this->set_address(0);
     return;
@@ -262,6 +295,8 @@ void MeshConnection::setup_connection() {
   if (status) {
     ESP_LOGW(TAG, "[%u] [%s] esp_ble_gattc_register_for_notify failed, status=%d", this->get_conn_id(),
              this->address_str_, status);
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
     this->disconnect();
     this->set_address(0);
     return;
