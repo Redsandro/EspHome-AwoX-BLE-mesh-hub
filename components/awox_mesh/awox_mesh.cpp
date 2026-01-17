@@ -40,9 +40,12 @@ void AwoxMesh::register_connection(MeshConnection *connection) {
   connection->mesh_ = this;
 
   connection->set_disconnect_callback([this]() {
-    ESP_LOGI(TAG, "disconnected");
+    ESP_LOGI(TAG, "dis");
 
-    this->publish_connected();
+    this->connect_in_progress_ = false;
+    this->connecting_address_ = 0;
+
+    this->publish_();
   });
 }
 
@@ -101,7 +104,7 @@ void AwoxMesh::setup() {
 
   this->publish_connection->publish_connection_sensor_discovery(this->connections_);
 
-  this->set_interval("publish_connection", 5000, [this]() { this->publish_connected(); });
+  this->set_interval("publish_connection", 5000, [this]() { this->publish_(); });
 }
 
 bool AwoxMesh::start_up_delay_done() {
@@ -125,6 +128,11 @@ void AwoxMesh::loop() {
 
     this->disconnect_connections_with_overlapping_mesh_ids();
 
+    if (this->connect_in_progress_) {
+      ESP_LOGD(TAG, "Connect already in progress, skipping parallel attempt");
+      return;
+    }
+
     for (auto *connection : this->connections_) {
       if (connection->get_address() == 0) {
         auto *found_device = this->next_to_connect();
@@ -142,6 +150,9 @@ void AwoxMesh::loop() {
 
         ESP_LOGI(TAG, "Try to connect %s => rssi: %d", found_device->device.address_str(),
                  (int) found_device->rssi);
+
+        this->connect_in_progress_ = true;
+        this->connecting_address_ = found_device->device.address_uint64();
 
         connection->connect_to(found_device);
 
