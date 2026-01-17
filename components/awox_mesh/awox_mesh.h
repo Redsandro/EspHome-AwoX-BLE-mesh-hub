@@ -50,6 +50,10 @@ class AwoxMesh : public esp32_ble_tracker::ESPBTDeviceListener, public Component
 
   uint32_t last_connection_attempt = 0;
 
+  bool connect_in_progress_ = false;
+
+  uint64_t connecting_address_ = 0;
+
   uint32_t last_found_device_cleanup = 0;
 
   int minimum_rssi = -90;
